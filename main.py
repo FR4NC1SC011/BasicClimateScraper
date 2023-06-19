@@ -3,6 +3,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 import re
 import json
+import uuid
 
 urls = [
     'https://www.meteored.mx/ciudad-de-mexico/historico',
@@ -46,6 +47,7 @@ async def send_request(url):
                 humidity = soup.find('span', id='ult_dato_hum').text
 
                 data = {
+                    "id": uuid.uuid4(),
                     "url": url,
                     "status": status,
                     "date" : date,
@@ -55,6 +57,7 @@ async def send_request(url):
                 }
             else:
                 data = {
+                    "id": uuid.uuid4(),
                     "url": url,
                     "status": status,
                 }
