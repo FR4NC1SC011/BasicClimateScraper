@@ -4,6 +4,11 @@ from bs4 import BeautifulSoup
 import re
 import json
 import uuid
+import psycopg2
+from psycopg2 import sql
+
+
+from config import config
 
 urls = [
     'https://www.meteored.mx/ciudad-de-mexico/historico',
@@ -47,7 +52,7 @@ async def send_request(url):
                 humidity = soup.find('span', id='ult_dato_hum').text
 
                 data = {
-                    "id": uuid.uuid4(),
+                    "id": str(uuid.uuid4()),
                     "url": url,
                     "status": status,
                     "date" : date,
@@ -57,12 +62,135 @@ async def send_request(url):
                 }
             else:
                 data = {
-                    "id": uuid.uuid4(),
+                    "id": str(uuid.uuid4()),
                     "url": url,
                     "status": status,
                 }
 
     write_to_json(data)
+
+
+
+def create_db():
+    """ Create the DataBase in PostgreSQL """
+    connection = None
+    try:
+        # read connection parameters
+        params = config()
+
+        # connect to the PostgreSQL server
+        print('Connecting to the PostgreSQL database...')
+        connection = psycopg2.connect(**params)
+
+        # Create a cursor
+        cursor = connection.cursor()
+
+        # Create a catalog/schema
+        catalog_name = 'cities_catalog'
+
+        create_catalog_query = f"CREATE SCHEMA IF NOT EXISTS {catalog_name}"
+        cursor.execute(create_catalog_query)
+
+        # Create a table for cities if it doesn't exist
+        cities_table_query = sql.SQL("""
+            CREATE TABLE IF NOT EXISTS {}.cities (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL
+            )
+        """).format(sql.Identifier(catalog_name))
+        cursor.execute(cities_table_query)
+
+        # Create a table for HTTP code responses if it doesn't exist
+        http_responses_table_query = sql.SQL("""
+            CREATE TABLE IF NOT EXISTS {}.http_responses (
+                id SERIAL PRIMARY KEY,
+                url VARCHAR(100) NOT NULL,
+                code INTEGER NOT NULL
+            )
+        """).format(sql.Identifier(catalog_name))
+        cursor.execute(http_responses_table_query)
+
+        # Create a table for retrieved data if it doesn't exist
+        retrieved_data_table_query = sql.SQL("""
+            CREATE TABLE IF NOT EXISTS {}.retrieved_data (
+                id SERIAL PRIMARY KEY,
+                url VARCHAR(100) NOT NULL,
+                status VARCHAR(100) NOT NULL,
+                date VARCHAR(100) NOT NULL,
+                distance VARCHAR(100) NOT NULL,
+                temperature VARCHAR(100) NOT NULL,
+                humidity VARCHAR(100) NOT NULL
+            )
+        """).format(sql.Identifier(catalog_name), sql.Identifier(catalog_name), sql.Identifier(catalog_name))
+        cursor.execute(retrieved_data_table_query)
+
+        # Commit the changes
+        connection.commit()
+
+        # Close the cursor and connection
+        cursor.close()
+    except (Exception, psycopg2.DatabaseError) as error:
+        print(error)
+    finally:
+        if conn is not None:
+            conn.close()
+            print('Database connection closed.')
+
+
+# Function to insert data
+def insert_data(city_name, http_code, http_description, retrieved_data):
+    conn = None
+    try:
+        # read connection parameters
+        params = config()
+
+        # connect to the PostgreSQL server
+        print('Connecting to the PostgreSQL database...')
+        connection = psycopg2.connect(**params)
+
+        # Create a cursor
+        cursor = connection.cursor()
+
+
+
+        # Insert city into cities table
+        insert_city_query = """
+            INSERT INTO your_catalog.cities (name)
+            VALUES (%s)
+            RETURNING id
+        """
+        cursor.execute(insert_city_query, (city_name,))
+        city_id = cursor.fetchone()[0]
+        
+        # Insert HTTP code response into http_responses table
+        insert_http_response_query = """
+            INSERT INTO your_catalog.http_responses (code, description)
+            VALUES (%s, %s)
+            RETURNING id
+        """
+        cursor.execute(insert_http_response_query, (http_code, http_description))
+        http_response_id = cursor.fetchone()[0]
+        
+        # Insert retrieved data into retrieved_data table
+        insert_retrieved_data_query = """
+            INSERT INTO your_catalog.retrieved_data (city_id, http_response_id, data)
+            VALUES (%s, %s, %s)
+        """
+        cursor.execute(insert_retrieved_data_query, (city_id, http_response_id, retrieved_data))
+        
+        # Commit the changes
+        connection.commit()
+        
+        print("Data inserted successfully!")
+        
+    except (Exception, psycopg2.Error) as error:
+        print("Error inserting data:", error)
+        
+    finally:
+        # Close the cursor and connection
+        cursor.close()
+        connection.close()
+
 
 
 async def main():
@@ -74,6 +202,8 @@ async def main():
     await asyncio.gather(*tasks)
 
 
+
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main())
+    create_db()
